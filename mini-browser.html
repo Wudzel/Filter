@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Mini Browser</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --glass: rgba(18, 18, 22, 0.82);
+    --glass-border: rgba(255,255,255,0.10);
+    --accent: #4f8ef7;
+    --bar-h: 44px;
+    --radius: 18px;
+    --shadow: 0 32px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06);
+    --min-w: 220px;
+    --min-h: 200px;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #0a0a0f;
+    font-family: 'DM Sans', sans-serif;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .bg {
+    position: fixed; inset: 0; z-index: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 10%, rgba(79,142,247,0.18) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 80% at 80% 90%, rgba(167,139,250,0.18) 0%, transparent 60%),
+      #0a0a0f;
+  }
+
+  .hint {
+    position: fixed; bottom: 36px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px; color: rgba(255,255,255,0.25);
+    letter-spacing: 0.06em; white-space: nowrap;
+    z-index: 1; pointer-events: none;
+    font-family: 'DM Mono', monospace;
+  }
+
+  #win {
+    position: fixed;
+    top: 60px; left: 20px;
+    width: 340px; height: 480px;
+    min-width: 220px; min-height: 200px;
+    border-radius: var(--radius);
+    background: var(--glass);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    z-index: 100;
+    transition: box-shadow 0.2s;
+  }
+  #win.dragging {
+    box-shadow: 0 48px 120px rgba(0,0,0,0.7), 0 0 0 2px rgba(79,142,247,0.4);
+    transition: none;
+  }
+
+  #titlebar {
+    height: var(--bar-h);
+    display: flex; align-items: center;
+    gap: 8px; padding: 0 12px;
+    background: rgba(255,255,255,0.04);
+    border-bottom: 1px solid var(--glass-border);
+    cursor: grab; flex-shrink: 0;
+    touch-action: none;
+  }
+
+  .traffic { display: flex; gap: 6px; flex-shrink: 0; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot.close { background: #ff5f57; }
+  .dot.min   { background: #febc2e; }
+  .dot.max   { background: #28c840; }
+
+  #urlwrap {
+    flex: 1;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    display: flex; align-items: center;
+    padding: 0 8px; gap: 6px;
+    overflow: hidden;
+  }
+  #urlinput {
+    flex: 1; background: none; border: none; outline: none;
+    color: rgba(255,255,255,0.75);
+    font-size: 11px; font-family: 'DM Mono', monospace;
+    min-width: 0;
+    user-select: text; -webkit-user-select: text;
+  }
+  #urlinput::placeholder { color: rgba(255,255,255,0.25); }
+
+  #goBtn {
+    flex-shrink: 0; background: #4f8ef7;
+    border: none; border-radius: 5px;
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+
+  #frameWrap {
+    flex: 1; overflow: hidden; position: relative;
+    border-radius: 0 0 16px 16px;
+    touch-action: pan-x pan-y;
+  }
+
+  #frame {
+    width: 100%; height: 100%;
+    border: none; display: block;
+  }
+
+  #blocked {
+    display: none;
+    position: absolute; inset: 0;
+    flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 10px; background: rgba(10,10,15,0.95);
+    text-align: center; padding: 24px;
+  }
+  #blocked.show { display: flex; }
+  #blocked .icon { font-size: 36px; }
+  #blocked h3 { color: #fff; font-size: 14px; font-weight: 600; }
+  #blocked p  { color: rgba(255,255,255,0.45); font-size: 11px; line-height: 1.6; }
+  #blocked a  {
+    font-size: 11px; color: #4f8ef7;
+    text-decoration: none;
+    border: 1px solid rgba(79,142,247,0.35);
+    padding: 6px 14px; border-radius: 6px;
+    margin-top: 4px;
+  }
+
+  #loader {
+    display: none; position: absolute; inset: 0;
+    align-items: center; justify-content: center;
+    background: rgba(10,10,15,0.5); z-index: 10;
+  }
+  #loader.show { display: flex; }
+  .spinner {
+    width: 26px; height: 26px;
+    border: 2px solid rgba(255,255,255,0.1);
+    border-top-color: #4f8ef7;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #win.minimised { height: 44px !important; }
+  #win.minimised #frameWrap,
+  #win.minimised #resizer { display: none; }
+
+  #resizer {
+    position: absolute; bottom: 0; right: 0;
+    width: 30px; height: 30px;
+    cursor: se-resize; touch-action: none;
+    z-index: 200;
+    display: flex; align-items: flex-end; justify-content: flex-end;
+    padding: 6px;
+  }
+  #resizer svg { opacity: 0.3; }
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<p class="hint">drag title bar · drag corner to resize</p>
+
+<div id="win">
+  <div id="titlebar">
+    <div class="traffic">
+      <div class="dot close" id="btnClose"></div>
+      <div class="dot min"   id="btnMin"></div>
+      <div class="dot max"   id="btnMax"></div>
+    </div>
+    <div id="urlwrap">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2.5">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input id="urlinput" type="text" placeholder="Search or type URL…"
+             value="https://duckduckgo.com"
+             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <button id="goBtn">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3">
+          <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="frameWrap">
+    <div id="loader"><div class="spinner"></div></div>
+    <iframe id="frame"
+      src="https://duckduckgo.com"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"
+      allow="autoplay; fullscreen">
+    </iframe>
+    <div id="blocked">
+      <div class="icon">🔒</div>
+      <h3>Site blocks embedding</h3>
+      <p>This site uses X-Frame-Options or CSP headers that prevent it from loading here. Try DuckDuckGo, Wikipedia, or similar open sites.</p>
+      <a id="blockedOpen" href="https://duckduckgo.com" target="_blank">Open in Safari →</a>
+    </div>
+  </div>
+
+  <div id="resizer">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="white">
+      <path d="M14 9L9 14H14V9ZM14 4L4 14H6.5L14 6.5V4ZM14 0L0 14H2.5L14 2.5V0Z"/>
+    </svg>
+  </div>
+</div>
+
+<script>
+(() => {
+  const win     = document.getElementById('win');
+  const titlebar= document.getElementById('titlebar');
+  const resizer = document.getElementById('resizer');
+  const frame   = document.getElementById('frame');
+  const frameWrap=document.getElementById('frameWrap');
+  const urlinput= document.getElementById('urlinput');
+  const goBtn   = document.getElementById('goBtn');
+  const loader  = document.getElementById('loader');
+  const blocked = document.getElementById('blocked');
+  const blockedOpen=document.getElementById('blockedOpen');
+
+  const clamp = (v,lo,hi) => Math.min(Math.max(v,lo),hi);
+  const pt = e => e.touches ? e.touches[0] : e;
+
+  // ── Navigate ──────────────────────────────
+  function go(raw) {
+    let url = raw.trim();
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) {
+      url = /\.\w{2,}/.test(url) && !/\s/.test(url)
+        ? 'https://' + url
+        : 'https://duckduckgo.com/?q=' + encodeURIComponent(url);
+    }
+    urlinput.value = url;
+    blocked.classList.remove('show');
+    loader.classList.add('show');
+    frame.src = url;
+    blockedOpen.href = url;
+  }
+
+  goBtn.addEventListener('click', () => go(urlinput.value));
+  urlinput.addEventListener('keydown', e => { if(e.key==='Enter') go(urlinput.value); });
+
+  frame.addEventListener('load', () => {
+    loader.classList.remove('show');
+    try {
+      const d = frame.contentDocument;
+      if (!d || !d.body || d.body.childElementCount === 0) throw 0;
+    } catch(_) {
+      blocked.classList.add('show');
+    }
+  });
+  frame.addEventListener('error', () => {
+    loader.classList.remove('show');
+    blocked.classList.add('show');
+  });
+
+  // ── Traffic lights ─────────────────────────
+  document.getElementById('btnClose').addEventListener('click', () => win.style.display='none');
+  document.getElementById('btnMin').addEventListener('click', () => win.classList.toggle('minimised'));
+  document.getElementById('btnMax').addEventListener('click', () => {
+    const vw=window.innerWidth, vh=window.innerHeight;
+    Object.assign(win.style,{left:'8px',top:'8px',width:(vw-16)+'px',height:(vh-16)+'px'});
+  });
+
+  // ── Drag ───────────────────────────────────
+  let drag=null;
+  function dragStart(e) {
+    if (e.target===urlinput||e.target===goBtn||e.target.closest('#urlwrap')) return;
+    const t=pt(e), r=win.getBoundingClientRect();
+    drag={ox:t.clientX-r.left, oy:t.clientY-r.top};
+    win.classList.add('dragging');
+    e.preventDefault();
+  }
+  function dragMove(e) {
+    if (!drag) return;
+    const t=pt(e), vw=window.innerWidth, vh=window.innerHeight;
+    const w=win.offsetWidth, h=win.offsetHeight;
+    win.style.left = clamp(t.clientX-drag.ox, 0, vw-w)+'px';
+    win.style.top  = clamp(t.clientY-drag.oy, 0, vh-h)+'px';
+    e.preventDefault();
+  }
+  function dragEnd() { drag=null; win.classList.remove('dragging'); }
+
+  titlebar.addEventListener('touchstart', dragStart, {passive:false});
+  titlebar.addEventListener('touchmove',  dragMove,  {passive:false});
+  titlebar.addEventListener('touchend',   dragEnd);
+  titlebar.addEventListener('mousedown',  dragStart);
+  document.addEventListener('mousemove',  dragMove);
+  document.addEventListener('mouseup',    dragEnd);
+
+  // ── Resize ─────────────────────────────────
+  let rsz=null;
+  function rszStart(e) {
+    const t=pt(e);
+    rsz={sx:t.clientX, sy:t.clientY, sw:win.offsetWidth, sh:win.offsetHeight};
+    e.preventDefault(); e.stopPropagation();
+  }
+  function rszMove(e) {
+    if (!rsz) return;
+    const t=pt(e), vw=window.innerWidth, vh=window.innerHeight;
+    const r=win.getBoundingClientRect();
+    win.style.width  = clamp(rsz.sw+(t.clientX-rsz.sx), 220, vw-r.left)+'px';
+    win.style.height = clamp(rsz.sh+(t.clientY-rsz.sy), 200, vh-r.top) +'px';
+    e.preventDefault();
+  }
+  function rszEnd() { rsz=null; }
+
+  resizer.addEventListener('touchstart', rszStart, {passive:false});
+  resizer.addEventListener('touchmove',  rszMove,  {passive:false});
+  resizer.addEventListener('touchend',   rszEnd);
+  resizer.addEventListener('mousedown',  rszStart);
+  document.addEventListener('mousemove', rszMove);
+  document.addEventListener('mouseup',   rszEnd);
+
+  // Block page scroll only during drag/resize
+  document.body.addEventListener('touchmove', e => {
+    if (drag||rsz) e.preventDefault();
+  }, {passive:false});
+})();
+</script>
+</body>
+</html>
